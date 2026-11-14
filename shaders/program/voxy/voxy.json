@@ -24,6 +24,7 @@
         "skyColor",
         "fogStart",
         "fogEnd",
+        "far",
         "shadowModelView",
         "shadowProjection"
     ],

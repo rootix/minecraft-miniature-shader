@@ -105,45 +105,66 @@ vec4 getAmbientColor(float skyLight, float sunHeight) {
    return ambient;
 }
 
-// Version of common/getFogMix.vsh with the far plane fixed at Voxy's
-// 48000 blocks, matching the #ifdef VOXY branch the vanilla programs use,
-// so the vanilla-to-LoD boundary stays seamless.
+// Vanilla fog for the cases the sliders do not control: fog effects like
+// blindness (and the Nether, whose short fog registers as one) and the
+// non-overworld dimensions, where the fog matches the vanilla fade at
+// fogEnd. The far plane is fixed at Voxy's 48000 blocks, matching the
+// #ifdef VOXY branch the vanilla programs use, so the fog effect detection
+// (against the vanilla far plane, `far` here) and the results stay identical
+// on both sides of the vanilla-to-LoD boundary. Only ever called with a
+// strength of 1.0.
 
 float calcFogMix(vec3 feetPos, float fogStartMult) {
    float len = length(feetPos);
    float cylinderLen = max(length(feetPos.xz), abs(feetPos.y));
 
+   float end = fogEnd * mix(VOXY_FOG_END_MIN, 1.0, fogStartMult);
+
    return max(
-      rescale(len, fogStartMult * fogStart, fogEnd),
+      rescale(len, fogStartMult * fogStart, end),
       rescale(cylinderLen, fogStartMult * (48000.0 - clamp(0.1 * 48000.0, 4.0, 64.0)), 48000.0)
    );
 }
 
 float getFogMix(vec3 feetPos) {
    #ifndef ENABLE_FOG
-      if (fogEnd >= 48000.0) {
+      if (fogEnd >= far) {
          return 0.0;
       }
    #endif
 
-   if (fogEnd < 48000.0) {
+   if (fogEnd < far) {
       // a fog effect (like blindness) is active
       return calcFogMix(feetPos, 1.0);
    }
 
-   #ifdef OVERWORLD
-      float x = worldTime * NORMALIZE_TIME;
-
-      x = clamp(25.0*(x < MIDNIGHT ? SUNSET - x : x - SUNRISE) + 0.3,
-               OVERWORLD_FOG_MIN,
-               OVERWORLD_FOG_MAX);
-
-      x = min(x, 1.0 - rainStrength);
-   #else
-      float x = 1.0;
+   #ifndef OVERWORLD
+      return calcFogMix(feetPos, 1.0);
    #endif
 
-   return calcFogMix(feetPos, x);
+   // Mirrors the VOXY branch of common/getFogMix.vsh: the overworld fog
+   // settings are a linear fog amount (0 = no fog, 1 = maximum fog), the
+   // transition setting amplifies it around sunset, sunrise and at night,
+   // rain forces its own fog, and the fade distance shrinks by a constant
+   // factor per step.
+
+   float amount     = 1.0 - OVERWORLD_FOG_MAX;
+   float transition = 1.0 - OVERWORLD_FOG_MIN;
+
+   float t = worldTime * NORMALIZE_TIME;
+   float weight = 1.0 - clamp(25.0 * (t < MIDNIGHT ? SUNSET - t : t - SUNRISE) / 0.7, 0.0, 1.0);
+
+   amount *= 1.0 + transition * weight;
+   amount = max(amount, rainStrength);
+
+   if (amount < 0.0001) {
+      return 0.0;
+   }
+
+   float minEnd = VOXY_FOG_END_MIN * fogEnd;
+   float end = minEnd * pow(48000.0 / minEnd, 1.0 - amount);
+
+   return rescale(length(feetPos), fogStart, end);
 }
 
 // Version of common/getFogColor.vsh.
