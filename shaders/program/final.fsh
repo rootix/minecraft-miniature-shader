@@ -1,6 +1,8 @@
 #include "/shader.h"
 
 uniform float far;
+uniform float viewWidth;
+uniform float viewHeight;
 uniform int isEyeInWater;
 uniform sampler2D colortex0;
 uniform sampler2D colortex6;
@@ -45,7 +47,11 @@ void main() {
       normal += roughness * random3(stepify(worldPos, stepSize));
       normal = normalize(normal);
 
-      vec4 reflectionColor = getReflectionColor(depth, normal, viewPos);
+      // translucents (water, glass) report zero roughness; solid blocks use
+      // the reflection function too, but a sky fallback is not plausible
+      // for them (an indoor floor should not pick up a sky sheen)
+      bool isTranslucent = roughness < 0.02;
+      vec4 reflectionColor = getReflectionColor(depth, normal, viewPos, isTranslucent);
 
       color.rgb = mix(
          color.rgb,
